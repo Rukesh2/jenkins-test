@@ -1,0 +1,176 @@
+🔹 STEP 1 — Launch Master EC2 (Jenkins Controller)
+
+Go to AWS Console → EC2 → Launch Instance
+
+Name: jenkins-master
+
+OS: Ubuntu 22.04 LTS
+
+Instance type: t2.micro (Free tier)
+
+Key pair: select or create one (e.g., devops-key.pem)
+
+Security Group:
+
+Allow SSH (22) from your IP.
+
+Allow Custom TCP (8080) from 0.0.0.0/0 (for Jenkins UI).
+
+Launch.
+
+Connect via SSH:
+
+ssh -i devops-key.pem ubuntu@<master-public-ip>
+
+
+Install Jenkins:
+
+sudo apt update
+sudo apt install openjdk-17-jdk -y
+curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key | sudo tee \
+  /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
+  https://pkg.jenkins.io/debian binary/ | sudo tee \
+  /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt update
+sudo apt install jenkins -y
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
+
+
+Check Jenkins status:
+
+sudo systemctl status jenkins
+
+
+Should show “active (running)”.
+
+Access Jenkins UI:
+
+Open browser → http://<master-public-ip>:8080
+
+Retrieve initial password:
+
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+
+Paste it → Install suggested plugins → Create admin user.
+
+🔹 STEP 2 — Launch Agent EC2 (Jenkins Node)
+
+Go back to EC2 → Launch Instance
+
+Name: jenkins-agent
+
+OS: Ubuntu 22.04 LTS
+
+Type: t2.micro
+
+Key pair: same as master (devops-key.pem)
+
+Security Group:
+
+Allow SSH (22) from master’s private IP and your IP (for access).
+
+Connect via SSH:
+
+ssh -i devops-key.pem ubuntu@<agent-public-ip>
+
+
+Install requirements:
+
+sudo apt update
+sudo apt install openjdk-17-jdk git docker.io -y
+sudo usermod -aG docker ubuntu
+
+🔹 STEP 3 — Configure SSH Access Between Master and Agent
+
+You’ll let Jenkins (running on master) connect to agent via SSH.
+
+On master, generate SSH key:
+
+ssh-keygen -t rsa -b 4096 -C "jenkins-agent-key"
+
+
+(Press enter for defaults.)
+
+Copy the public key to agent:
+
+ssh-copy-id -i ~/.ssh/id_rsa.pub ubuntu@<agent-public-ip>
+
+
+(If ssh-copy-id not found, manually copy the key:
+
+Run cat ~/.ssh/id_rsa.pub on master
+
+On agent: nano ~/.ssh/authorized_keys → paste → save.)
+
+Test connection from master:
+
+ssh ubuntu@<agent-public-ip>
+
+
+It should log in without asking for a password.
+
+🔹 STEP 4 — Add Agent Node in Jenkins UI
+
+In Jenkins Dashboard:
+
+Go to Manage Jenkins → Nodes and Clouds → New Node
+
+Name: agent-1
+
+Select Permanent Agent → OK
+
+Fill details:
+
+Remote root directory: /home/ubuntu
+
+Launch method: Launch agents via SSH
+
+Host: <agent-public-ip>
+
+Credentials: Add → SSH Username with Private Key
+
+Username: ubuntu
+
+Private Key: paste contents of /home/ubuntu/.ssh/id_rsa (from master)
+
+Save.
+
+Jenkins will connect and show “agent-1 connected”.
+
+🔹 STEP 5 — Test a Distributed Job
+
+Create a new pipeline job.
+
+Add this script:
+
+pipeline {
+    agent { label 'agent-1' }
+    stages {
+        stage('Test') {
+            steps {
+                sh 'hostname'
+                sh 'echo "Running build on remote agent"'
+            }
+        }
+    }
+}
+
+
+Run build → check console log.
+Output should show the agent’s hostname — proving it executed remotely.
+
+✅ RESULT
+
+You now have:
+
+Jenkins Master on one EC2
+
+Remote Agent connected via SSH
+
+Distributed CI/CD environment (real-world architecture)
+
+Would you like me to extend this next into a distributed Jenkins pipeline that builds and Dockerizes a Node.js app on the agent, triggered from GitHub?
+That would be your first multi-node CI/CD deployment.
